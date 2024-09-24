@@ -1,7 +1,6 @@
 #pragma once
 
 #include <string>
-#include <span>
 #include <array>
 #include <charconv>
 

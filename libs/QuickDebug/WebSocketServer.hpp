@@ -46,7 +46,7 @@ namespace Ext {
         };
 
     public:
-        explicit WebSocketServer() : m_port(0), m_isRunning(false) {
+        WebSocketServer() : m_port(0), m_isRunning(false) {
 #ifdef _WIN32
             WSADATA wsaData;
             int result = WSAStartup(MAKEWORD(2, 2), &wsaData);

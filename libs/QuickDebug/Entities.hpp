@@ -25,7 +25,7 @@ namespace QD {
         }
     };
 
-    const struct TransmissionMsg
+    struct TransmissionMsg
     {
         std::string message;
 

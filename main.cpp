@@ -40,10 +40,10 @@ uint32_t PingPong(uint32_t t, uint32_t minBandwidth, uint32_t maxBandwidth, uint
     return pingPongValue;
 }
 
-int LimitThroughput(uint32_t bandwidth_mbps)
+int LimitThroughput(uint32_t bandwidth_bps)
 {
-    g_currentBandwidth_bps = bandwidth_mbps * 1000 * 1000;
-    std::string command = "./update_tput.sh DP2" + std::to_string(bandwidth_mbps) + " 0ms";
+    g_currentBandwidth_bps = bandwidth_bps;
+    std::string command = "./update_tput.sh DP2 " + std::to_string(g_currentBandwidth_bps) + " 0";
     auto result = system(command.c_str());
     return result;
 }
@@ -66,8 +66,8 @@ void ShapingThread()
                         g_maxBandwidth_kbps * 1000,
                         g_stepSizeBandwidth_kbps * 1000
                     );
-                    std::cout << "Bandwidth: " << bandwidth_bps / 1000 << " kbps" << std::endl;
                     LimitThroughput(bandwidth_bps);
+                    std::cout << "Bandwidth: " << g_currentBandwidth_bps / 1000 << " kbps" << std::endl;
                     QD::QuickDebug::Plot("Middlebox Bandwidth (kbps)", g_currentBandwidth_bps / 1000);
 
                     std::this_thread::sleep_for(g_stepInterval);
@@ -78,7 +78,7 @@ void ShapingThread()
             }
             case Mode::Reset:
                 std::cout << "Resetting..." << std::endl;
-                LimitThroughput(g_unlimitedBandwidth_mbps);
+                LimitThroughput(g_unlimitedBandwidth_mbps * 1000 * 1000);
                 std::cout << "Bandwidth: " << g_currentBandwidth_bps / 1000 << " kbps" << std::endl;
                 g_shapingMode = Mode::Idle;
                 break;
@@ -90,7 +90,7 @@ void ShapingThread()
 
 void ReadValue(const std::string& label, std::chrono::milliseconds& value)
 {
-    std::cout << value <<  "(Current Value: " << value.count() << ")" << std::endl;
+    std::cout << label <<  "(Current Value: " << value.count() << ")" << std::endl;
 
     std::string in;
     std::getline(std::cin, in);
@@ -132,7 +132,7 @@ int main()
     while (g_isRunning)
     {
         std::cout << "Range: [" << g_minBandwidth_kbps << ", " << g_maxBandwidth_kbps << "] kbps, Stepsize: "
-        << g_stepSizeBandwidth_kbps << " kbps, Runtime: " << g_maxShapingTime << std::endl;
+        << g_stepSizeBandwidth_kbps << " kbps, Runtime: " << g_maxShapingTime.count() << std::endl;
 
         std::cout << "1: Configure Parameters" << std::endl;
         std::cout << "2: Start Shaping" << std::endl;
@@ -143,7 +143,6 @@ int main()
 
         if (input == "1")
         {
-            g_shapingMode = Mode::Reset;
             ReadValue("Min Bandwidth: ", g_minBandwidth_kbps);
             ReadValue("Max Bandwidth: ", g_maxBandwidth_kbps);
             ReadValue("Stepsize Bandwidth: ", g_stepSizeBandwidth_kbps);
