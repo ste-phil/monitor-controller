@@ -4,6 +4,11 @@
 
 #include <cstdlib>
 
+#include <ftxui/dom/elements.hpp>  // for text, hbox, vbox, Element
+#include <ftxui/component/component.hpp>  // for Button, Renderer
+#include <ftxui/component/screen_interactive.hpp>  // for ScreenInteractive
+#include <string>
+
 enum class Mode
 {
     Idle,
@@ -24,6 +29,13 @@ std::chrono::milliseconds g_maxShapingTime = 15000ms;
 std::chrono::milliseconds g_stepInterval = 50ms;
 
 uint32_t g_currentBandwidth_bps;
+
+class NullBuffer : public std::streambuf {
+public:
+    int overflow(int c) override {
+        return c;  // Discards the character
+    }
+};
 
 uint32_t PingPong(uint32_t t, uint32_t minBandwidth, uint32_t maxBandwidth, uint32_t stepSize)
 {
@@ -104,11 +116,8 @@ void ReadValue(const std::string& label, std::chrono::milliseconds& value)
 }
 
 template<class T>
-void ReadValue(const std::string& label, T& value)
+void ReadValue(std::string& in, T& value)
 {
-    std::cout << label <<  "(Current Value: " << value << ")" << std::endl;
-
-    std::string in;
     std::getline(std::cin, in);
     std::istringstream stream(in);
 
@@ -128,35 +137,128 @@ int main()
     shaperThread = std::thread(ShapingThread);
     shaperThread.detach();
 
-    g_isRunning = true;
-    while (g_isRunning)
-    {
-        std::cout << "Range: [" << g_minBandwidth_kbps << ", " << g_maxBandwidth_kbps << "] kbps, Stepsize: "
-        << g_stepSizeBandwidth_kbps << " kbps, Runtime: " << g_maxShapingTime.count() << std::endl;
+    using namespace ftxui;
 
-        std::cout << "1: Configure Parameters" << std::endl;
-        std::cout << "2: Start Shaping" << std::endl;
-        std::cout << "3: Stop Shaping" << std::endl;
-        std::cout << "Select option: ";
-        std::string input;
-        std::getline(std::cin, input);
+    // Create strings to store the input data
+    std::string input1, input2, input3, input4;
 
-        if (input == "1")
-        {
-            ReadValue("Min Bandwidth: ", g_minBandwidth_kbps);
-            ReadValue("Max Bandwidth: ", g_maxBandwidth_kbps);
-            ReadValue("Stepsize Bandwidth: ", g_stepSizeBandwidth_kbps);
-            ReadValue("Shaping Runtime (ms): ", g_maxShapingTime);
-        }
-        else if (input == "2")
-        {
-            g_shapingMode = Mode::Shaping;
-        }
-        else if (input == "3")
-        {
-            g_shapingMode = Mode::Reset;
-        }
-    }
+    // Create input components for the four fields
+    auto input_field1 = Input(&input1, std::to_string(g_maxBandwidth_kbps));
+    auto input_field2 = Input(&input2, std::to_string(g_minBandwidth_kbps));
+    auto input_field3 = Input(&input3, std::to_string(g_stepInterval.count()));
+    auto input_field4 = Input(&input4, std::to_string(g_maxShapingTime.count()));
+
+    // Button label and action for the center button
+    std::string center_save_button = "Save";
+    auto center_button = Button(&center_save_button, [&] {
+        ReadValue(input1, g_maxBandwidth_kbps);
+        ReadValue(input2, g_minBandwidth_kbps);
+        ReadValue(input3, g_stepSizeBandwidth_kbps);
+        ReadValue(input4, g_currentBandwidth_bps);
+    });
+
+    // Group the input fields and center button into a container
+    auto input_container = Container::Vertical({
+        input_field1,
+        input_field2,
+        input_field3,
+        input_field4,
+        center_button,  // Add the center button
+    });
+
+    // Render the input fields and center button inside a bordered box
+    auto input_renderer = Renderer(input_container, [&] {
+        return vbox({
+            text("Bandwidth Shaper"),
+            separator(),
+            vbox({
+                hbox(text("Min Bandwidth: "), input_field1->Render()) | flex,
+                hbox(text("Max Bandwidth: "), input_field2->Render()) | flex,
+                hbox(text("Step Bandwidth: "), input_field3->Render()) | flex,
+                hbox(text("Time (ms): "), input_field4->Render()) | flex,
+                separator(),
+                center_button->Render(),  // Render the center button
+            }),  // Add a border around the input fields and button
+        });
+    });
+
+    // Button for the left column
+    std::string shaping_start_stop_btn_text = "Start";
+    auto shaping_start_stop_btn = Button(&shaping_start_stop_btn_text, [&] {
+        shaping_start_stop_btn_text = shaping_start_stop_btn_text == "Start" ? "Stop" : "Start";
+    });
+
+    auto shaping_control_group_renderer = Renderer(shaping_start_stop_btn, [&] {
+       return vbox({
+           text("Shaping Control"),
+           separator(),
+           vbox({
+               text("Bandwidth: " + std::to_string(g_currentBandwidth_bps / 1000) + " kbps")| flex,
+               separator(),
+               shaping_start_stop_btn->Render(),  // Render the center button
+           }) | flex ,  // Add a border around the input fields and button
+       });
+   });
+
+
+    // Button for the right column
+    std::string right_button_label = "Right Button";
+    auto right_button = Button(&right_button_label, [&] {
+        std::cout << "Right button clicked!" << std::endl;
+    });
+
+    // Create a main container with three columns: left button, inputs, and right button
+    auto main_container = Container::Horizontal({
+        input_container,  // Center input fields and button
+        shaping_control_group_renderer,  // Left column button
+        right_button,  // Right column button
+    });
+
+    // Render the full layout with the left, center, and right components
+    auto main_renderer = Renderer(main_container, [&] {
+        return hbox({
+            input_renderer->Render() | flex,  // Center input fields and button
+            separator(),
+            shaping_control_group_renderer->Render() | flex,  // Left button
+            separator(),
+            right_button->Render() | flex,  // Right button
+        });
+    });
+
+    // Create a screen and run the interactive loop
+    auto screen = ScreenInteractive::Fullscreen();
+    screen.Loop(main_renderer);
+
+    //
+    // g_isRunning = true;
+    // while (g_isRunning)
+    // {
+    //     std::cout << "Range: [" << g_minBandwidth_kbps << ", " << g_maxBandwidth_kbps << "] kbps, Stepsize: "
+    //     << g_stepSizeBandwidth_kbps << " kbps, Runtime: " << g_maxShapingTime.count() << std::endl;
+    //
+    //     std::cout << "1: Configure Parameters" << std::endl;
+    //     std::cout << "2: Start Shaping" << std::endl;
+    //     std::cout << "3: Stop Shaping" << std::endl;
+    //     std::cout << "Select option: ";
+    //     std::string input;
+    //     std::getline(std::cin, input);
+    //
+    //     if (input == "1")
+    //     {
+    //         ReadValue("Min Bandwidth: ", g_minBandwidth_kbps);
+    //         ReadValue("Max Bandwidth: ", g_maxBandwidth_kbps);
+    //         ReadValue("Stepsize Bandwidth: ", g_stepSizeBandwidth_kbps);
+    //         ReadValue("Shaping Runtime (ms): ", g_maxShapingTime);
+    //     }
+    //     else if (input == "2")
+    //     {
+    //         g_shapingMode = Mode::Shaping;
+    //     }
+    //     else if (input == "3")
+    //     {
+    //         g_shapingMode = Mode::Reset;
+    //     }
+    // }
 }
 
 
