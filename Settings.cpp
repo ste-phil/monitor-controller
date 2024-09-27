@@ -7,7 +7,7 @@
 
 
 std::vector<std::string> Settings::ServerIPs {
-    "192.168.28.11"
+    "192.168.28.11",
     "192.168.28.10"
 };
 
