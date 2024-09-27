@@ -30,5 +30,5 @@ if [ -n "$BANDWIDTH" ]; then
 fi
 
 # Execute the command remotely
-ssh "$REMOTE_HOST" "$CCA_CMD $IPERF_CMD &"
+ssh "$REMOTE_HOST" "nohup $CCA_CMD $IPERF_CMD > /dev/null 2>&1 & &"
 echo "iperf3 client started connecting to $SERVER_HOST:$PORT with UDP mode: $USE_UDP and bandwidth: ${BANDWIDTH:-not specified}"

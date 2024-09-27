@@ -13,7 +13,7 @@ else
   CCA_CMD="sudo sysctl net.ipv4.tcp_congestion_control=cubic; sudo sysctl net.ipv4.tcp_ecn=0;"
 fi
 
-IPERF_CMD="iperf3 -s -p $PORT &"
+IPERF_CMD="iperf3 -s -p $PORT"
 
-ssh $REMOTE_HOST "$CCA_CMD $IPERF_CMD"
+ssh $REMOTE_HOST "nohup $CCA_CMD $IPERF_CMD > /dev/null 2>&1 &"
 echo "iperf3 server started on $REMOTE_HOST:$PORT"
