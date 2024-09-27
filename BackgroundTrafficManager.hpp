@@ -48,8 +48,8 @@ public:
        .Config = config,
        .Port = port,
       });
-      StartServer(port);
-      StartClient(port);
+      StartServer(port, config.IsL4S);
+      StartClient(port, config.IsUDP, config.IsL4S, config.Bandwidth.bps());
     }
   }
 
@@ -76,27 +76,37 @@ public:
   }
 
 private:
-  void StartServer(uint16_t port)
+  void StartServer(uint16_t port, bool useL4S)
   {
-    auto cmd = "start_iperf_server.sh " + Settings::TrafficGeneratorIp + " " + std::to_string(port);
+    auto cmd = "./start_iperf_server.sh " +
+        Settings::TrafficSinkIp + " " +
+        std::to_string(port) + " " +
+        (useL4S ? "true " : "false ");
+
     system(cmd.c_str());
   }
 
   void KillServer(uint16_t port)
   {
-    auto cmd = "stop_iperf_server.sh " + Settings::TrafficGeneratorIp + " " + std::to_string(port);
+    auto cmd = "./stop_iperf_server.sh " + Settings::TrafficSinkIp + " " + std::to_string(port);
     system(cmd.c_str());
   }
 
-  void StartClient(uint16_t port)
+  void StartClient(uint16_t port, bool useUdp, bool useL4S, uint64_t bandwidth)
   {
-    auto cmd = "start_iperf_client.sh " + Settings::TrafficSinkIp + " " + Settings::TrafficGeneratorIp + " " + std::to_string(port);
+    auto cmd = "./start_iperf_client.sh "
+        + Settings::TrafficGeneratorIp + " "
+        + Settings::TrafficSinkIp + " "
+        + std::to_string(port) + " "
+        + (useL4S ? "true " : "false ")
+        + (useUdp ? "true " : "false ")
+        + std::to_string(bandwidth);
     system(cmd.c_str());
   }
 
   void KillClient(uint16_t port)
   {
-    auto cmd = "stop_iperf_client.sh " + Settings::TrafficSinkIp + " " + std::to_string(port);
+    auto cmd = "./stop_iperf_client.sh " + Settings::TrafficGeneratorIp + " " + std::to_string(port);
     system(cmd.c_str());
   }
 

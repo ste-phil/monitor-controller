@@ -167,7 +167,7 @@ std::tuple<ftxui::Component, ftxui::Component> BuildBandwidthShaper()
     });
 
     auto l4sEnabled = std::make_shared<bool>(false);
-    auto checkboxL4S = Checkbox("L4S", l4sEnabled.get(), {
+    auto checkboxL4S = Checkbox("Set L4S Marks", l4sEnabled.get(), {
         .on_change = [=]
         {
             if (*l4sEnabled)
