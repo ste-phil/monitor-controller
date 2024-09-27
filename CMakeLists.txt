@@ -23,7 +23,8 @@ SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pthread")
 
 include_directories("libs")
 
-add_executable(monitor_controller main.cpp)
+add_executable(monitor_controller main.cpp
+        Settings.cpp)
 target_link_libraries(monitor_controller
     PRIVATE ftxui::screen
     PRIVATE ftxui::dom

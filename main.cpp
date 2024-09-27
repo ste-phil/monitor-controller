@@ -8,6 +8,11 @@
 #include <ftxui/component/component.hpp>  // for Button, Renderer
 #include <ftxui/component/screen_interactive.hpp>  // for ScreenInteractive
 #include <string>
+#include "QuickDebug/Common.hpp"
+#include "BackgroundTrafficManager.hpp"
+#include "L4SMarkingManager.h"
+#include "Dbg.h"
+#include "Settings.h"
 
 enum class Mode
 {
@@ -18,24 +23,21 @@ enum class Mode
 
 using namespace std::chrono_literals;
 
-bool g_isRunning;
+BackgroundTrafficManager g_trafficManager;
+bool g_isRunning = true;
 Mode g_shapingMode;
 
-const uint32_t g_unlimitedBandwidth_mbps = 100;
+QD::BitRate g_defaultBandwidth = QD::BitRate::Mbps(100);
 uint32_t g_minBandwidth_kbps = 5'000;
 uint32_t g_maxBandwidth_kbps = 20'000;
 uint32_t g_stepSizeBandwidth_kbps = 100;
 std::chrono::milliseconds g_maxShapingTime = 15000ms;
 std::chrono::milliseconds g_stepInterval = 50ms;
+std::chrono::milliseconds g_shapingTimeRemaining = 0ms;
 
 uint32_t g_currentBandwidth_bps;
-
-class NullBuffer : public std::streambuf {
-public:
-    int overflow(int c) override {
-        return c;  // Discards the character
-    }
-};
+ftxui::ScreenInteractive g_screen = ftxui::ScreenInteractive::Fullscreen();
+std::shared_ptr<std::string> btnStartStopText = std::make_shared<std::string>("Start");
 
 uint32_t PingPong(uint32_t t, uint32_t minBandwidth, uint32_t maxBandwidth, uint32_t stepSize)
 {
@@ -56,8 +58,9 @@ int LimitThroughput(uint32_t bandwidth_bps)
 {
     g_currentBandwidth_bps = bandwidth_bps;
     std::string command = "./update_tput.sh DP2 " + std::to_string(g_currentBandwidth_bps) + " 0";
-    auto result = system(command.c_str());
-    return result;
+    // auto result = system(command.c_str());
+    // return result;
+    return 0;
 }
 
 void ShapingThread()
@@ -68,9 +71,9 @@ void ShapingThread()
         {
             case Mode::Shaping:
             {
-                auto elapsedTime = std::chrono::milliseconds(0);
+                g_shapingTimeRemaining = std::chrono::milliseconds(g_maxShapingTime);
                 uint32_t t = 0;
-                while (elapsedTime < g_maxShapingTime && g_shapingMode != Mode::Reset)
+                while (g_shapingTimeRemaining > 0ms && g_shapingMode != Mode::Reset)
                 {
                     auto bandwidth_bps = PingPong(
                         t++,
@@ -79,19 +82,20 @@ void ShapingThread()
                         g_stepSizeBandwidth_kbps * 1000
                     );
                     LimitThroughput(bandwidth_bps);
-                    std::cout << "Bandwidth: " << g_currentBandwidth_bps / 1000 << " kbps" << std::endl;
+                    // std::cout << "Bandwidth: " << g_currentBandwidth_bps / 1000 << " kbps" << std::endl;
                     QD::QuickDebug::Plot("Middlebox Bandwidth (kbps)", g_currentBandwidth_bps / 1000);
 
                     std::this_thread::sleep_for(g_stepInterval);
-                    elapsedTime += g_stepInterval;
+                    g_shapingTimeRemaining -= g_stepInterval;
                 }
                 g_shapingMode = Mode::Reset;
                 break;
             }
-            case Mode::Reset:
-                std::cout << "Resetting..." << std::endl;
-                LimitThroughput(g_unlimitedBandwidth_mbps * 1000 * 1000);
-                std::cout << "Bandwidth: " << g_currentBandwidth_bps / 1000 << " kbps" << std::endl;
+        case Mode::Reset:
+                // std::cout << "Resetting..." << std::endl;
+                LimitThroughput(g_defaultBandwidth.bps());
+                g_shapingTimeRemaining = 0ms;
+                // std::cout << "Bandwidth: " << g_currentBandwidth_bps / 1000 << " kbps" << std::endl;
                 g_shapingMode = Mode::Idle;
                 break;
             case Mode::Idle:
@@ -102,11 +106,7 @@ void ShapingThread()
 
 void ReadValue(const std::string& label, std::chrono::milliseconds& value)
 {
-    std::cout << label <<  "(Current Value: " << value.count() << ")" << std::endl;
-
-    std::string in;
-    std::getline(std::cin, in);
-    std::istringstream stream(in);
+    std::istringstream stream(label);
 
     int temp;
     if (stream >> temp)
@@ -115,17 +115,221 @@ void ReadValue(const std::string& label, std::chrono::milliseconds& value)
     }
 }
 
-template<class T>
-void ReadValue(std::string& in, T& value)
+uint32_t ReadValue(std::string& in)
 {
-    std::getline(std::cin, in);
     std::istringstream stream(in);
-
-    T temp;
+    uint32_t temp;
     if (stream >> temp)
     {
-        value = temp;
+        return temp;
     }
+    return 0;
+}
+
+
+
+std::tuple<ftxui::Component, ftxui::Component> BuildBandwidthShaper()
+{
+    using namespace ftxui;
+    auto input0 = std::make_shared<std::string>(std::to_string(g_defaultBandwidth.Kbps()));
+    auto input1 = std::make_shared<std::string>(std::to_string(g_maxBandwidth_kbps));
+    auto input2 = std::make_shared<std::string>(std::to_string(g_minBandwidth_kbps));
+    auto input3 = std::make_shared<std::string>(std::to_string(g_stepInterval.count()));
+    auto input4 = std::make_shared<std::string>(std::to_string(g_maxShapingTime.count()));
+
+    auto field0 = Input(input0.get());
+    auto field1 = Input(input1.get());
+    auto field2 = Input(input2.get());
+    auto field3 = Input(input3.get());
+    auto field4 = Input(input4.get());
+
+    auto buttonSave = Button("Save", [=] {
+        g_defaultBandwidth = QD::BitRate::Kbps(ReadValue(*input0));
+        g_maxBandwidth_kbps = ReadValue(*input1);
+        g_minBandwidth_kbps = ReadValue(*input2);
+        g_stepSizeBandwidth_kbps = ReadValue(*input3);
+        g_maxShapingTime = std::chrono::milliseconds(ReadValue(*input4));
+
+        g_shapingMode = Mode::Reset;
+    });
+
+    auto buttonShapingStartStop = Button(btnStartStopText.get(), [=] {
+        if (g_shapingMode == Mode::Idle)
+        {
+            *btnStartStopText = "Stop";
+            g_shapingMode = Mode::Shaping;
+        }
+        else if (g_shapingMode == Mode::Shaping)
+        {
+            *btnStartStopText = "Start";
+            g_shapingMode = Mode::Reset;
+        }
+    });
+
+    auto l4sEnabled = std::make_shared<bool>(false);
+    auto checkboxL4S = Checkbox("L4S", l4sEnabled.get(), {
+        .on_change = [=]
+        {
+            if (*l4sEnabled)
+            {
+                L4SMarkingManager::Enable();
+            }
+            else
+            {
+                L4SMarkingManager::Disable();
+            }
+        }
+    });
+
+    auto container = Container::Vertical({
+        field0,
+        field1,
+        field2,
+        field3,
+        field4,
+        buttonSave,
+        buttonShapingStartStop,
+        checkboxL4S
+    });
+
+    auto renderer = Renderer([=] {
+        std::ostringstream out;
+        out << std::fixed << std::setprecision(1) << g_shapingTimeRemaining.count() / 1000.0f;
+        auto remainingTime = out.str();
+        auto l4sEnabled_local = l4sEnabled; // HACK: This keeps l4sEnabled from being deallocated
+
+        auto labelBandwidth = std::make_shared<std::string>("Current Bandwidth: " + std::to_string(g_currentBandwidth_bps / 1000) + " kbps");
+        auto labelRemainingTime = std::make_shared<std::string>("Remaining Time: " + remainingTime + " s");
+        return vbox({
+            text("Bandwidth Shaper"),
+            separator(),
+            vbox({
+                hbox(text("Default Bandwidth: "), field0->Render()) | flex,
+                hbox(text("Min Bandwidth: "), field1->Render()) | flex,
+                hbox(text("Max Bandwidth: "), field2->Render()) | flex,
+                hbox(text("Step Bandwidth: "), field3->Render()) | flex,
+                hbox(text("Time (ms): "), field4->Render()) | flex,
+                separator(),
+                buttonSave->Render(),
+                buttonShapingStartStop->Render(),
+            }),
+            separator(),
+            vbox({
+               text(*labelBandwidth),
+               text(*labelRemainingTime),
+               text("") | flex,
+            }) | flex ,
+            separator(),
+            checkboxL4S->Render()
+        });
+    });
+
+    return std::make_tuple(container, renderer);
+}
+
+std::tuple<ftxui::Component, ftxui::Component> BuildBackgroundTraffic() {
+    using namespace ftxui;
+
+    auto container = Container::Vertical({
+
+    });
+
+    auto renderer = Renderer(container, [=]() {
+        Elements elements;
+        container->DetachAllChildren();
+        for (int i = 0; i < g_trafficManager.GetActive().size(); i++)
+        {
+            const BackgroundTrafficControl& trafficControl = g_trafficManager.GetActive()[i];
+
+            auto btn = Button("X", [=]
+            {
+                g_trafficManager.RemoveTraffic(trafficControl.Port);
+            });
+
+            container->Add(btn);
+            elements.push_back(hbox({
+                vcenter(text(trafficControl.Config.IsUDP ? "UDP" : "TCP")),
+                vcenter(text(", ")),
+                vcenter(text(trafficControl.Config.IsL4S ? "L4S" : "CLA")),
+                vcenter(text(" @ ")),
+                vcenter(text(trafficControl.Config.Bandwidth.PrettyPrint(QD::BitRateFormat::Mbps))),
+                vcenter(text(" on ")),
+                vcenter(text(std::to_string(trafficControl.Port))),
+                filler() | flex,
+                btn->Render() | flex_shrink
+            }));
+        }
+        return vbox(std::move(elements)); // Return a vertical box containing the vector elements
+    });
+
+    return std::make_tuple(container, renderer);
+}
+
+auto selected1 = std::make_shared<int>(0);
+auto radiobox1_list = std::make_shared<std::vector<std::string>>(std::initializer_list<std::string>({
+    "UDP",
+    "TCP"
+}));
+
+auto selected2 = std::make_shared<int>(0);
+auto radiobox2_list = std::make_shared<std::vector<std::string>>(std::initializer_list<std::string>({
+    "L4S",
+    "CLA"
+}));
+auto trafficBandwidth = std::make_shared<std::string>("10");
+std::tuple<ftxui::Component, ftxui::Component> BuildTrafficControl()
+{
+    return [=]()
+    {
+        using namespace ftxui;
+
+        auto checkbox1 = Radiobox(radiobox1_list.get(), selected1.get());
+        auto checkbox2 = Radiobox(radiobox2_list.get(), selected2.get());
+        auto inputBandwidth = Input(trafficBandwidth.get());
+        auto addTrafficBtn = Button("Add Traffic", [=] {
+            g_trafficManager.AddTraffic({
+                .IsUDP = *selected1 == 0,
+                .IsL4S = *selected2 == 0,
+                .Bandwidth = QD::BitRate::Mbps(ReadValue(*trafficBandwidth)),
+           });
+        });
+
+        auto [bgContainer, bgRenderer] = BuildBackgroundTraffic();
+        auto container = Container::Vertical({
+            addTrafficBtn,
+            Container::Horizontal({
+                checkbox1,
+                checkbox2,
+            }),
+            inputBandwidth,
+            bgContainer
+        });
+
+
+        auto renderer = Renderer(container, [=]()
+        {
+            return vbox( {
+                text("Background traffic"),
+                separator(),
+                hbox({
+                    checkbox1->Render() | flex,
+                    separator(),
+                    checkbox2->Render() | flex
+                }),
+                hbox({
+                    text("Bandwidth (mbps): "),
+                    inputBandwidth->Render(),
+                }),
+                separator(),
+                addTrafficBtn->Render(),
+                separator(),
+                text("Active traffic"),
+                bgRenderer->Render()
+            });
+        });
+
+        return std::make_tuple(container, renderer);
+    }();
 }
 
 int main()
@@ -139,126 +343,38 @@ int main()
 
     using namespace ftxui;
 
-    // Create strings to store the input data
-    std::string input1, input2, input3, input4;
+    auto [bandwidthShaperSettingsContainer, bandwidthShaperSettingsRenderer] = BuildBandwidthShaper();
+    auto [trafficControlContainer, trafficControlRenderer] = BuildTrafficControl();
 
-    // Create input components for the four fields
-    auto input_field1 = Input(&input1, std::to_string(g_maxBandwidth_kbps));
-    auto input_field2 = Input(&input2, std::to_string(g_minBandwidth_kbps));
-    auto input_field3 = Input(&input3, std::to_string(g_stepInterval.count()));
-    auto input_field4 = Input(&input4, std::to_string(g_maxShapingTime.count()));
-
-    // Button label and action for the center button
-    std::string center_save_button = "Save";
-    auto center_button = Button(&center_save_button, [&] {
-        ReadValue(input1, g_maxBandwidth_kbps);
-        ReadValue(input2, g_minBandwidth_kbps);
-        ReadValue(input3, g_stepSizeBandwidth_kbps);
-        ReadValue(input4, g_currentBandwidth_bps);
+    auto mainContainer = Container::Horizontal({
+        bandwidthShaperSettingsContainer,
+        trafficControlContainer,
     });
 
-    // Group the input fields and center button into a container
-    auto input_container = Container::Vertical({
-        input_field1,
-        input_field2,
-        input_field3,
-        input_field4,
-        center_button,  // Add the center button
-    });
-
-    // Render the input fields and center button inside a bordered box
-    auto input_renderer = Renderer(input_container, [&] {
-        return vbox({
-            text("Bandwidth Shaper"),
-            separator(),
-            vbox({
-                hbox(text("Min Bandwidth: "), input_field1->Render()) | flex,
-                hbox(text("Max Bandwidth: "), input_field2->Render()) | flex,
-                hbox(text("Step Bandwidth: "), input_field3->Render()) | flex,
-                hbox(text("Time (ms): "), input_field4->Render()) | flex,
-                separator(),
-                center_button->Render(),  // Render the center button
-            }),  // Add a border around the input fields and button
-        });
-    });
-
-    // Button for the left column
-    std::string shaping_start_stop_btn_text = "Start";
-    auto shaping_start_stop_btn = Button(&shaping_start_stop_btn_text, [&] {
-        shaping_start_stop_btn_text = shaping_start_stop_btn_text == "Start" ? "Stop" : "Start";
-    });
-
-    auto shaping_control_group_renderer = Renderer(shaping_start_stop_btn, [&] {
-       return vbox({
-           text("Shaping Control"),
-           separator(),
-           vbox({
-               text("Bandwidth: " + std::to_string(g_currentBandwidth_bps / 1000) + " kbps")| flex,
-               separator(),
-               shaping_start_stop_btn->Render(),  // Render the center button
-           }) | flex ,  // Add a border around the input fields and button
-       });
-   });
-
-
-    // Button for the right column
-    std::string right_button_label = "Right Button";
-    auto right_button = Button(&right_button_label, [&] {
-        std::cout << "Right button clicked!" << std::endl;
-    });
-
-    // Create a main container with three columns: left button, inputs, and right button
-    auto main_container = Container::Horizontal({
-        input_container,  // Center input fields and button
-        shaping_control_group_renderer,  // Left column button
-        right_button,  // Right column button
-    });
-
-    // Render the full layout with the left, center, and right components
-    auto main_renderer = Renderer(main_container, [&] {
+    auto mainRenderer = Renderer(mainContainer, [&] {
         return hbox({
-            input_renderer->Render() | flex,  // Center input fields and button
+            bandwidthShaperSettingsRenderer->Render() | flex,  // Center input fields and button
             separator(),
-            shaping_control_group_renderer->Render() | flex,  // Left button
-            separator(),
-            right_button->Render() | flex,  // Right button
+            trafficControlRenderer->Render() | flex,  // Right button
         });
     });
 
-    // Create a screen and run the interactive loop
-    auto screen = ScreenInteractive::Fullscreen();
-    screen.Loop(main_renderer);
+    std::thread update_thread([]() {
+        while (true) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-    //
-    // g_isRunning = true;
-    // while (g_isRunning)
-    // {
-    //     std::cout << "Range: [" << g_minBandwidth_kbps << ", " << g_maxBandwidth_kbps << "] kbps, Stepsize: "
-    //     << g_stepSizeBandwidth_kbps << " kbps, Runtime: " << g_maxShapingTime.count() << std::endl;
-    //
-    //     std::cout << "1: Configure Parameters" << std::endl;
-    //     std::cout << "2: Start Shaping" << std::endl;
-    //     std::cout << "3: Stop Shaping" << std::endl;
-    //     std::cout << "Select option: ";
-    //     std::string input;
-    //     std::getline(std::cin, input);
-    //
-    //     if (input == "1")
-    //     {
-    //         ReadValue("Min Bandwidth: ", g_minBandwidth_kbps);
-    //         ReadValue("Max Bandwidth: ", g_maxBandwidth_kbps);
-    //         ReadValue("Stepsize Bandwidth: ", g_stepSizeBandwidth_kbps);
-    //         ReadValue("Shaping Runtime (ms): ", g_maxShapingTime);
-    //     }
-    //     else if (input == "2")
-    //     {
-    //         g_shapingMode = Mode::Shaping;
-    //     }
-    //     else if (input == "3")
-    //     {
-    //         g_shapingMode = Mode::Reset;
-    //     }
-    // }
+            if (g_shapingMode == Mode::Idle)
+            {
+                *btnStartStopText = "Start";
+            }
+            else if (g_shapingMode == Mode::Shaping)
+            {
+                *btnStartStopText = "Stop";
+            }
+            g_screen.PostEvent(Event::Custom);
+        }
+    });
+    update_thread.detach();
+
+    g_screen.Loop(mainRenderer);
 }
-
-
