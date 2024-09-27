@@ -18,7 +18,7 @@ else
   CCA_CMD="sudo sysctl net.ipv4.tcp_congestion_control=cubic; sudo sysctl net.ipv4.tcp_ecn=0;"
 fi
 
-IPERF_CMD="iperf3 -c $SERVER_HOST -p $PORT"
+IPERF_CMD="iperf3 -c $SERVER_HOST -p $PORT -t 86400"
 # Add UDP flag if USE_UDP is true
 if [ "$USE_UDP" = "true" ]; then
   IPERF_CMD="$IPERF_CMD -u"
@@ -30,5 +30,5 @@ if [ -n "$BANDWIDTH" ]; then
 fi
 
 # Execute the command remotely
-ssh "$REMOTE_HOST" "nohup $CCA_CMD $IPERF_CMD > /dev/null 2>&1 & &"
+ssh "$REMOTE_HOST" "nohup $CCA_CMD $IPERF_CMD > /dev/null 2>&1 &"
 echo "iperf3 client started connecting to $SERVER_HOST:$PORT with UDP mode: $USE_UDP and bandwidth: ${BANDWIDTH:-not specified}"

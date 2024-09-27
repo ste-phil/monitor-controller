@@ -58,9 +58,8 @@ int LimitThroughput(uint32_t bandwidth_bps)
 {
     g_currentBandwidth_bps = bandwidth_bps;
     std::string command = "./update_tput.sh DP2 " + std::to_string(g_currentBandwidth_bps) + " 0";
-    // auto result = system(command.c_str());
-    // return result;
-    return 0;
+    auto result = system(command.c_str());
+    return result;
 }
 
 void ShapingThread()
