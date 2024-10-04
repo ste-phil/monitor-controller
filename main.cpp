@@ -10,6 +10,7 @@
 #include <string>
 #include "QuickDebug/Common.hpp"
 #include "BackgroundTrafficManager.hpp"
+#include "LinkStatsManager.hpp"
 #include "L4SMarkingManager.h"
 #include "Dbg.h"
 #include "Settings.h"
@@ -22,6 +23,9 @@ enum class Mode
 };
 
 using namespace std::chrono_literals;
+
+LinkStatsManager g_linkStatsManager;
+LinkStats g_linkStats;
 
 BackgroundTrafficManager g_trafficManager;
 bool g_isRunning = true;
@@ -197,6 +201,14 @@ std::tuple<ftxui::Component, ftxui::Component> BuildBandwidthShaper()
         auto remainingTime = out.str();
         auto l4sEnabled_local = l4sEnabled; // HACK: This keeps l4sEnabled from being deallocated
 
+        auto labelPacketCount = std::make_shared<std::string>("Packet Count: " + std::to_string(g_linkStats.packetCount));
+        auto labelDroppedPacketCount = std::make_shared<std::string>("Dropped Packed Count: " + std::to_string(g_linkStats.droppedPacketCount));
+        auto labelMarkingProb = std::make_shared<std::string>("Marking Probability:  " + std::to_string(g_linkStats.markingProbability));
+        auto labelL4SLatency = std::make_shared<std::string>("L4S Latency: " + std::to_string(g_linkStats.l4sQueueLatency.count()) + " us");
+        auto labelCLALatency = std::make_shared<std::string>("CLA Latency: " + std::to_string(g_linkStats.claQueueLatency.count()) + " us");
+
+
+
         auto labelBandwidth = std::make_shared<std::string>("Current Bandwidth: " + std::to_string(g_currentBandwidth_bps / 1000) + " kbps");
         auto labelRemainingTime = std::make_shared<std::string>("Remaining Time: " + remainingTime + " s");
         return vbox({
@@ -214,9 +226,15 @@ std::tuple<ftxui::Component, ftxui::Component> BuildBandwidthShaper()
             }),
             separator(),
             vbox({
-               text(*labelBandwidth),
-               text(*labelRemainingTime),
-               text("") | flex,
+                text(*labelBandwidth),
+                text(*labelRemainingTime),
+                separator(),
+                text(*labelPacketCount),
+                text(*labelDroppedPacketCount),
+                text(*labelMarkingProb),
+                text(*labelL4SLatency),
+                text(*labelCLALatency),
+                text("") | flex,
             }) | flex ,
             separator(),
             checkboxL4S->Render()
@@ -375,5 +393,21 @@ int main()
     });
     update_thread.detach();
 
-    g_screen.Loop(mainRenderer);
+
+    std::thread link_stat_thread([]
+    {
+        g_linkStatsManager.Fetch(g_linkStats);
+
+        QD::QuickDebug::Plot("Monitor_Packets", g_linkStats.packetCount);
+        QD::QuickDebug::Plot("Monitor_DroppedPackets", g_linkStats.droppedPacketCount);
+        QD::QuickDebug::Plot("Monitor_CLAQueueLatency", g_linkStats.claQueueLatency.count());
+        QD::QuickDebug::Plot("Monitor_L4SQueueLatency", g_linkStats.l4sQueueLatency.count());
+        QD::QuickDebug::Plot("Monitor_ECNProbability", g_linkStats.markingProbability * 100);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+    });
+
+
+
+    // g_screen.Loop(mainRenderer);
 }
