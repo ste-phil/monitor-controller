@@ -10,30 +10,7 @@
 #include <iostream>
 #include <cstdio>
 
-struct LinkStats {
-    uint64_t packetCount;
-    uint64_t droppedPacketCount;
-    std::chrono::microseconds l4sQueueLatency;
-    std::chrono::microseconds claQueueLatency;
-    float markingProbability;
-};
-
-class LinkStatsManager {
-public:
-    bool Fetch(LinkStats& stats) {
-        static std::string result;
-        RunCommand(m_systemCommand2, result);
-        if (result.empty())
-            return false;
-
-        ParseElementData(result, stats);
-        return true;
-    }
-private:
-    bool ParseElementData(const std::string& cmdOutput, LinkStats& stats)
-    {
-
-        std::string input = R"(qdisc htb 1: dev bng-e1 root refcnt 17 r2q 10 default 0 direct_packets_stat 515 ver 3.17 direct_qlen 1000
+static std::string s_exampleInput = R"(qdisc htb 1: dev bng-e1 root refcnt 17 r2q 10 default 0 direct_packets_stat 515 ver 3.17 direct_qlen 1000
  Sent 226872157 bytes 1041515 pkt (dropped 345, overlimits 73281 requeues 0)
  backlog 0b 0p requeues 0
 qdisc dualpi2 11: dev bng-e1 parent 1:1 limit 500p target 15ms tupdate 16ms alpha 0.156250 beta 3.195312 l4s_ect coupling_factor 2 drop_on_overload step_thresh 1ms drop_dequeue split_gso classic_protection 10%
@@ -62,7 +39,30 @@ qdisc ingress ffff: dev bng-e3 parent ffff:fff1 ----------------
  Sent 212850097 bytes 1042181 pkt (dropped 0, overlimits 0 requeues 0)
  backlog 0b 0p requeues 0)";
 
+;
 
+struct LinkStats {
+    uint64_t packetCount;
+    uint64_t droppedPacketCount;
+    std::chrono::microseconds l4sQueueLatency;
+    std::chrono::microseconds claQueueLatency;
+    float markingProbability;
+};
+
+class LinkStatsManager {
+public:
+    bool Fetch(LinkStats& stats) {
+        static std::string result;
+        RunCommand(m_systemCommand, result);
+        if (result.empty())
+            return false;
+
+        ParseElementData(result, stats);
+        return true;
+    }
+private:
+    bool ParseElementData(const std::string& cmdOutput, LinkStats& stats)
+    {
         auto elems = Split(cmdOutput, "\n\n");
         if (elems.size() < 2)
             return false;
@@ -170,7 +170,6 @@ qdisc ingress ffff: dev bng-e3 parent ffff:fff1 ----------------
 
 private:
     const char* m_systemCommand = "sudo ip netns exec bng sudo tc -s -d qdisc show";
-    const char* m_systemCommand2 = "ipconfig";
 };
 
 #endif //LINKSTATSMANAGER_H

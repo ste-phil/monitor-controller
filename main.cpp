@@ -394,20 +394,22 @@ int main()
     update_thread.detach();
 
 
-    std::thread link_stat_thread([]
+    std::thread link_stat_thread([&]
     {
-        g_linkStatsManager.Fetch(g_linkStats);
+        while (true)
+        {
+            g_linkStatsManager.Fetch(g_linkStats);
 
-        QD::QuickDebug::Plot("Monitor_Packets", g_linkStats.packetCount);
-        QD::QuickDebug::Plot("Monitor_DroppedPackets", g_linkStats.droppedPacketCount);
-        QD::QuickDebug::Plot("Monitor_CLAQueueLatency", g_linkStats.claQueueLatency.count());
-        QD::QuickDebug::Plot("Monitor_L4SQueueLatency", g_linkStats.l4sQueueLatency.count());
-        QD::QuickDebug::Plot("Monitor_ECNProbability", g_linkStats.markingProbability * 100);
+            QD::QuickDebug::Plot("Monitor_Packets", g_linkStats.packetCount);
+            QD::QuickDebug::Plot("Monitor_DroppedPackets", g_linkStats.droppedPacketCount);
+            QD::QuickDebug::Plot("Monitor_CLAQueueLatency", g_linkStats.claQueueLatency.count());
+            QD::QuickDebug::Plot("Monitor_L4SQueueLatency", g_linkStats.l4sQueueLatency.count());
+            QD::QuickDebug::Plot("Monitor_ECNProbability", g_linkStats.markingProbability * 100);
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        }
     });
+    link_stat_thread.detach();
 
-
-
-    // g_screen.Loop(mainRenderer);
+    g_screen.Loop(mainRenderer);
 }
